@@ -1,0 +1,178 @@
+---
+title: "PRA 2 VISUALIZACION"
+author: "Ángela Martín Herrera"
+date: "2025-01-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Instalar y cargar paquetes necesarios
+if (!require(shiny)) install.packages("shiny")
+if (!require(ggplot2)) install.packages("ggplot2")
+if (!require(plotly)) install.packages("plotly")
+if (!require(dplyr)) install.packages("dplyr")
+if (!require(readr)) install.packages("readr")
+
+library(shiny)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(readr)
+```
+
+```{r}
+
+# Cargar el conjunto de datos
+data <- read_csv("Mental health Depression disorder Data.csv")
+
+# Limpiar y transformar los datos
+data_clean <- data %>%
+  mutate(
+    Year = as.integer(Year),
+    `Schizophrenia (%)` = as.numeric(`Schizophrenia (%)`),
+    `Bipolar disorder (%)` = as.numeric(`Bipolar disorder (%)`),
+    `Eating disorders (%)` = as.numeric(`Eating disorders (%)`),
+    `Anxiety disorders (%)` = as.numeric(`Anxiety disorders (%)`),
+    `Drug use disorders (%)` = as.numeric(`Drug use disorders (%)`),
+    `Depression (%)` = as.numeric(`Depression (%)`),
+    `Alcohol use disorders (%)` = as.numeric(`Alcohol use disorders (%)`)
+  ) %>%
+  filter(!is.na(Year) & Year >= 1990 & Year <= 2016)
+
+# Interfaz del usuario (UI)
+ui <- fluidPage(
+  titlePanel("Análisis de Salud Mental Global"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(
+        "year", 
+        "Selecciona un año:", 
+        choices = sort(unique(data_clean$Year)),
+        selected = max(data_clean$Year)
+      ),
+      selectInput(
+        "disorder", 
+        "Selecciona un trastorno:", 
+        choices = c(
+          "Schizophrenia (%)",
+          "Bipolar disorder (%)",
+          "Eating disorders (%)",
+          "Anxiety disorders (%)",
+          "Drug use disorders (%)",
+          "Depression (%)",
+          "Alcohol use disorders (%)"
+        ),
+        selected = "Depression (%)"
+      )
+    ),
+    
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Top Países (Año Seleccionado)", plotOutput("topCountriesPlot")),
+        tabPanel("Top Años (País con Más Enfermedades)", plotOutput("topYearsPlot")),
+        tabPanel("Distribución por Continente", plotOutput("continentPlot")),
+        tabPanel("Desglose Global", plotOutput("globalPieChart"))
+      )
+    )
+  )
+)
+
+# Lógica del servidor (Server)
+server <- function(input, output) {
+  
+  # Datos filtrados por año seleccionado
+  filtered_data <- reactive({
+    data_clean %>%
+      filter(Year == input$year)
+  })
+  
+  # Gráfico del Top Países para el año seleccionado
+  output$topCountriesPlot <- renderPlot({
+    top_countries <- filtered_data() %>%
+      arrange(desc(!!sym(input$disorder))) %>%
+      head(10)
+    
+    ggplot(top_countries, aes(x = reorder(Entity, !!sym(input$disorder)), y = !!sym(input$disorder))) +
+      geom_col(fill = "steelblue") +
+      coord_flip() +
+      labs(
+        title = paste("Top 10 países con mayores tasas de", input$disorder, "en", input$year),
+        x = "País",
+        y = "Prevalencia (%)"
+      ) +
+      theme_minimal()
+  })
+  
+  # Gráfico del Top Años para el país con más enfermedades
+  output$topYearsPlot <- renderPlot({
+    # Obtener el país con más prevalencia en el año seleccionado
+    top_country <- filtered_data() %>%
+      arrange(desc(!!sym(input$disorder))) %>%
+      slice(1) %>%
+      pull(Entity)
+    
+    # Filtrar datos para ese país y calcular el top años
+    top_years <- data_clean %>%
+      filter(Entity == top_country) %>%
+      arrange(desc(!!sym(input$disorder))) %>%
+      head(10)
+    
+    ggplot(top_years, aes(x = reorder(Year, !!sym(input$disorder)), y = !!sym(input$disorder))) +
+      geom_col(fill = "darkorange") +
+      coord_flip() +
+      labs(
+        title = paste("Top 10 años con mayores tasas de", input$disorder, "en", top_country),
+        x = "Año",
+        y = "Prevalencia (%)"
+      ) +
+      theme_minimal()
+  })
+  
+  # Gráfico de distribución por continente
+  output$continentPlot <- renderPlot({
+    continent_data <- filtered_data() %>%
+      group_by(Entity) %>%
+      summarise(Average = mean(!!sym(input$disorder), na.rm = TRUE)) %>%
+      arrange(desc(Average)) %>%
+      head(10)
+    
+    ggplot(continent_data, aes(x = reorder(Entity, Average), y = Average, fill = Entity)) +
+      geom_bar(stat = "identity") +
+      theme_minimal() +
+      labs(
+        title = paste("Distribución de", input$disorder, "por continente en", input$year),
+        x = "Continente",
+        y = "Promedio de prevalencia (%)"
+      ) +
+      coord_flip()
+  })
+  
+  # Gráfico de pastel global
+  output$globalPieChart <- renderPlot({
+    pie_data <- filtered_data() %>%
+      group_by(Entity) %>%
+      summarise(Value = mean(!!sym(input$disorder), na.rm = TRUE)) %>%
+      arrange(desc(Value)) %>%
+      head(10)
+    
+    ggplot(pie_data, aes(x = "", y = Value, fill = Entity)) +
+      geom_bar(stat = "identity", width = 1) +
+      coord_polar("y") +
+      labs(
+        title = paste("Distribución global de", input$disorder, "en", input$year),
+        x = NULL,
+        y = NULL
+      ) +
+      theme_void()
+  })
+}
+
+# Ejecutar la aplicación Shiny
+shinyApp(ui = ui, server = server)
+```
+
